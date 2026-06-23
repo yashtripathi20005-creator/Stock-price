@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Price Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-2.25.2.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>📈 Stock Price Tracker</h1>
+            <p>Real-time stock prices with interactive charts</p>
+            
+            <!-- Search -->
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" id="symbolInput" placeholder="Enter stock symbol (e.g., AAPL)" value="{{ default_symbol }}">
+                    <button id="searchBtn">Search</button>
+                </div>
+                
+                <div class="period-selector">
+                    <button class="period-btn" data-period="1d">1D</button>
+                    <button class="period-btn" data-period="5d">5D</button>
+                    <button class="period-btn" data-period="1mo">1M</button>
+                    <button class="period-btn" data-period="3mo">3M</button>
+                    <button class="period-btn" data-period="6mo">6M</button>
+                    <button class="period-btn active" data-period="1y">1Y</button>
+                    <button class="period-btn" data-period="2y">2Y</button>
+                    <button class="period-btn" data-period="5y">5Y</button>
+                    <button class="period-btn" data-period="max">MAX</button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p style="margin-top: 15px;">Loading stock data...</p>
+        </div>
+        
+        <!-- Error -->
+        <div class="error-message" id="errorMessage">
+            <strong>⚠️ Error:</strong> <span id="errorText">Failed to load stock data</span>
+        </div>
+        
+        <!-- Stock Info -->
+        <div class="stock-info" id="stockInfo">
+            <div class="info-card">
+                <div class="label">Symbol</div>
+                <div class="value" id="symbolDisplay">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">Company</div>
+                <div class="value" id="nameDisplay">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">Price</div>
+                <div class="value" id="priceDisplay">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">Change</div>
+                <div class="value" id="changeDisplay">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">Volume</div>
+                <div class="value" id="volumeDisplay">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">52W High / Low</div>
+                <div class="value" id="highLowDisplay">--</div>
+            </div>
+        </div>
+        
+        <!-- Chart -->
+        <div class="chart-container">
+            <h2>📊 Price Chart</h2>
+            <div id="chart"></div>
+        </div>
+    </div>
+    
+    <script>
+        // State
+        let currentSymbol = '{{ default_symbol }}';
+        let currentPeriod = '1y';
+        let chartData = null;
+        
+        // DOM elements
+        const symbolInput = document.getElementById('symbolInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const periodBtns = document.querySelectorAll('.period-btn');
+        const loading = document.getElementById('loading');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
+        const chartDiv = document.getElementById('chart');
+        
+        // Display elements
+        const symbolDisplay = document.getElementById('symbolDisplay');
+        const nameDisplay = document.getElementById('nameDisplay');
+        const priceDisplay = document.getElementById('priceDisplay');
+        const changeDisplay = document.getElementById('changeDisplay');
+        const volumeDisplay = document.getElementById('volumeDisplay');
+        const highLowDisplay = document.getElementById('highLowDisplay');
+        
+        // Load stock data
+        async function loadStockData(symbol, period) {
+            // Show loading
+            loading.classList.add('active');
+            errorMessage.classList.remove('active');
+            
+            try {
+                const url = `/api/stock?symbol=${encodeURIComponent(symbol)}&period=${period}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to fetch stock data');
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Update display
+                updateStockInfo(data.data);
+                
+                // Update chart
+                if (data.chart) {
+                    updateChart(data.chart);
+                }
+                
+                // Update current symbol
+                currentSymbol = symbol;
+                
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+        
+        // Update stock info
+        function updateStockInfo(data) {
+            symbolDisplay.textContent = data.symbol || '--';
+            nameDisplay.textContent = data.name || '--';
+            
+            if (data.current_price) {
+                priceDisplay.textContent = `${data.currency || '$'} ${data.current_price.toFixed(2)}`;
+            } else {
+                priceDisplay.textContent = '--';
+            }
+            
+            if (data.change !== null && data.change !== undefined) {
+                const changeClass = data.change >= 0 ? 'positive' : 'negative';
+                const sign = data.change >= 0 ? '+' : '';
+                changeDisplay.textContent = `${sign}${data.change.toFixed(2)} (${sign}${data.change_percent.toFixed(2)}%)`;
+                changeDisplay.className = `value ${changeClass}`;
+            } else {
+                changeDisplay.textContent = '--';
+                changeDisplay.className = 'value';
+            }
+            
+            if (data.volume) {
+                volumeDisplay.textContent = formatNumber(data.volume);
+            } else {
+                volumeDisplay.textContent = '--';
+            }
+            
+            if (data.high_52w && data.low_52w) {
+                highLowDisplay.textContent = `${data.high_52w.toFixed(2)} / ${data.low_52w.toFixed(2)}`;
+            } else {
+                highLowDisplay.textContent = '--';
+            }
+        }
+        
+        // Update chart
+        function updateChart(chartJson) {
+            const chartData = JSON.parse(chartJson);
+            Plotly.react('chart', chartData.data, chartData.layout);
+        }
+        
+        // Format number
+        function formatNumber(num) {
+            if (num >= 1e9) {
+                return (num / 1e9).toFixed(2) + 'B';
+            } else if (num >= 1e6) {
+                return (num / 1e6).toFixed(2) + 'M';
+            } else if (num >= 1e3) {
+                return (num / 1e3).toFixed(2) + 'K';
+            }
+            return num.toString();
+        }
+        
+        // Show error
+        function showError(message) {
+            errorText.textContent = message || 'Failed to load stock data';
+            errorMessage.classList.add('active');
+        }
+        
+        // Handle search
+        function handleSearch() {
+            const symbol = symbolInput.value.trim().toUpperCase();
+            if (!symbol) {
+                showError('Please enter a stock symbol');
+                return;
+            }
+            currentSymbol = symbol;
+            loadStockData(symbol, currentPeriod);
+        }
+        
+        // Handle period change
+        function handlePeriodChange(period) {
+            currentPeriod = period;
+            
+            // Update active state
+            periodBtns.forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.period === period) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Reload data
+            if (currentSymbol) {
+                loadStockData(currentSymbol, period);
+            }
+        }
+        
+        // Event listeners
+        searchBtn.addEventListener('click', handleSearch);
+        
+        symbolInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleSearch();
+            }
+        });
+        
+        periodBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const period = btn.dataset.period;
+                handlePeriodChange(period);
+            });
+        });
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load default stock
+            loadStockData('{{ default_symbol }}', '1y');
+        });
+        
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            if (currentSymbol) {
+                loadStockData(currentSymbol, currentPeriod);
+            }
+        }, 30000);
+    </script>
+</body>
+</html>
